@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>P2P体験</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --text:#1d2330; --muted:#5d6675; --line:#dde1e7;
+  --me:#2557c7; --me-soft:#e3ebfd; --peer:#7c3aed; --peer-soft:#efe7fe;
+  --warn:#b45309; --err:#b42318; --err-soft:#fde8e6; --ok:#15803d; --code-bg:#f0f2f5;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171c; --card:#1e2229; --text:#e7eaf0; --muted:#9aa3b2; --line:#323844;
+    --me:#7ea6ff; --me-soft:#1c2b4d; --peer:#b794ff; --peer-soft:#2d2347;
+    --warn:#f59e0b; --err:#ff8a7a; --err-soft:#3d1f1c; --ok:#4ade80; --code-bg:#171a20;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171c; --card:#1e2229; --text:#e7eaf0; --muted:#9aa3b2; --line:#323844;
+  --me:#7ea6ff; --me-soft:#1c2b4d; --peer:#b794ff; --peer-soft:#2d2347;
+  --warn:#f59e0b; --err:#ff8a7a; --err-soft:#3d1f1c; --ok:#4ade80; --code-bg:#171a20;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:8px 0 4px}
+h2{font-size:1.1rem;margin:0 0 10px}
+p{margin:0 0 10px}
+.muted{color:var(--muted);font-size:.9rem}
+.note{font-size:.82rem;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+button{font:inherit;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font-weight:700}
+button:disabled{opacity:.45;cursor:not-allowed}
+.btn-main{background:var(--me);color:#fff}
+.btn-ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:400}
+:root[data-theme="dark"] .btn-main{color:#0b0d10}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn-main{color:#0b0d10}}
+input{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:100%}
+label{display:block;font-size:.9rem;color:var(--muted);margin-bottom:4px}
+.row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.row > .grow{flex:1 1 180px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.grid2{grid-template-columns:1fr}}
+.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+.ip{font-size:2.2rem;font-weight:800;color:var(--me);font-variant-numeric:tabular-nums;line-height:1.2;
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;overflow-wrap:anywhere}
+.ip.peer{color:var(--peer)}
+.status{font-weight:700}
+.status.on{color:var(--ok)} .status.off{color:var(--err)} .status.wait{color:var(--warn)}
+/* 通信の図 */
+.diagram{display:flex;align-items:center;gap:10px;margin:14px 0 4px}
+.node{flex:0 0 auto;padding:8px 12px;border-radius:10px;font-weight:700;font-size:.9rem;text-align:center;min-width:120px;overflow-wrap:anywhere}
+.node.me{background:var(--me-soft);color:var(--me)}
+.node.peer{background:var(--peer-soft);color:var(--peer)}
+.node.off{opacity:.4}
+.wire{position:relative;flex:1;height:4px;background:var(--line);border-radius:2px}
+.wire.on{background:var(--ok)}
+.packet{position:absolute;top:50%;width:18px;height:18px;margin-top:-9px;border-radius:50%;opacity:0}
+.packet.go-right{background:var(--me);animation:right .9s ease-in-out}
+.packet.go-left{background:var(--peer);animation:left .9s ease-in-out}
+@keyframes right{0%{left:0;opacity:1}90%{opacity:1}100%{left:calc(100% - 18px);opacity:0}}
+@keyframes left{0%{left:calc(100% - 18px);opacity:1}90%{opacity:1}100%{left:0;opacity:0}}
+.wire-label{position:absolute;left:0;right:0;top:8px;text-align:center;font-size:.8rem;color:var(--muted)}
+/* ログ・一覧 */
+ul.log,ul.list{list-style:none;margin:0;padding:0;max-height:320px;overflow-y:auto}
+ul.log li{padding:6px 8px;border-left:4px solid var(--line);margin-bottom:4px;font-size:.92rem;background:var(--bg);border-radius:0 6px 6px 0;overflow-wrap:anywhere}
+ul.log li time{color:var(--muted);font-size:.8rem;margin-right:8px;font-variant-numeric:tabular-nums}
+ul.log li.in{border-left-color:var(--peer)}
+ul.log li.out{border-left-color:var(--me)}
+ul.log li.sys{border-left-color:var(--muted)}
+ul.log li.err{border-left-color:var(--err);background:var(--err-soft)}
+ul.list li{padding:8px 10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+ul.list li:last-child{border-bottom:0}
+ul.list li.mine{background:var(--me-soft);border-radius:6px}
+.meta{font-size:.8rem;color:var(--muted)}
+.empty{color:var(--muted);font-size:.9rem;padding:8px 0}
+/* パケットログ */
+.pkt-wrap{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+table.pkt{width:100%;border-collapse:collapse;font-size:.85rem}
+table.pkt th,table.pkt td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.pkt th{position:sticky;top:0;background:var(--card);font-weight:700;white-space:nowrap}
+table.pkt td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.pkt td.addr{white-space:nowrap}
+table.pkt tr.rx td.dir{color:var(--peer);font-weight:700;white-space:nowrap}
+table.pkt tr.tx td.dir{color:var(--me);font-weight:700;white-space:nowrap}
+table.pkt code{display:block;background:var(--code-bg);padding:4px 6px;border-radius:4px;white-space:pre-wrap;word-break:break-all;
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:.8rem;max-width:420px}
+@media (max-width:700px){ table.pkt code{max-width:220px} }
+details{margin-top:8px}
+summary{cursor:pointer;font-weight:700}
+details ol,details ul{padding-left:1.4em;margin:8px 0}
+table.cmp{border-collapse:collapse;font-size:.9rem;margin:8px 0;width:100%}
+table.cmp th,table.cmp td{border:1px solid var(--line);padding:6px 8px;text-align:left}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+[hidden]{display:none !important}
+</style>
+</head>
+<body>
+<main>
+
+<!-- ===== 最初の画面 ===== -->
+<section id="home" class="screen">
+  <h1>P2P体験（ペア通信）</h1>
+  <p class="muted">サーバを通さずに、ペアの相手と<b>直接</b>つながる「P2P（ピア・ツー・ピア）」を体験しよう。</p>
+  <div class="card">
+    <div class="row">
+      <div class="grow"><label for="hName">あなたの名前（ニックネーム）</label><input id="hName" maxlength="20" autocomplete="off"></div>
+      <button class="btn-main" id="hStart">はじめる</button>
+    </div>
+    <p class="muted" style="margin-top:8px">状態：<span class="status wait" id="hStatus">未開始</span></p>
+  </div>
+  <div class="card">
+    <details>
+      <summary>先生向け：授業の流れ（例）</summary>
+      <ol>
+        <li>隣の人とペアになる。</li>
+        <li>2人とも名前を入れて「はじめる」を押す。<b>自分のIPアドレス</b>が表示される。</li>
+        <li>どちらか一方が、<b>相手のIPアドレス</b>を入力して「接続」を押す。</li>
+        <li>メッセージを送り合う。「受信」ボタンがなくても届くことを確かめる（クライアントサーバ体験と比べる）。</li>
+        <li>通信データログで、送信元IPと宛先IPが<b>自分と相手だけ</b>であることを確かめる（サーバのIPアドレスが出てこない）。</li>
+        <li>ほかのペアの人が、自分のIPアドレスに接続しようとするとどうなるか試す（ペア以外はつながらない）。</li>
+        <li>「切断」を押すと、相手の画面はどうなるか確かめる。</li>
+      </ol>
+      <p><b>クライアントサーバとの比較</b></p>
+      <table class="cmp">
+        <tr><th></th><th>クライアントサーバ</th><th>P2P</th></tr>
+        <tr><td>メッセージの通り道</td><td>必ずサーバを通る</td><td>相手に直接届く</td></tr>
+        <tr><td>受け取り方</td><td>サーバに取りに行く（受信ボタン）</td><td>すぐ届く</td></tr>
+        <tr><td>通信の記録</td><td>サーバにすべて残る</td><td>当事者の2人だけが持つ</td></tr>
+        <tr><td>サーバが止まると</td><td>全員使えない</td><td>そもそもサーバがない</td></tr>
+      </table>
+      <p><b>考えさせたい問い</b></p>
+      <ul>
+        <li>相手のIPアドレスを知らなかったら、どうやってつながればよいか？（→ 名簿の役割をするサーバが必要になる）</li>
+        <li>3人、10人、40人が全員と直接つながると、接続は何本必要か？（n人なら n(n−1)/2 本）</li>
+        <li>サーバに記録が残らないことの良い点と困る点は？（プライバシー、違法ファイル共有、通話アプリ）</li>
+      </ul>
+    </details>
+    <details>
+      <summary>IPアドレスについて（注意）</summary>
+      <ul>
+        <li>この教材のIPアドレスは、教材の中だけで使う<b>仮想のIPアドレス</b>です。端末の本物のIPアドレスではありません。</li>
+      </ul>
+    </details>
+    <details>
+      <summary>つながらないときは</summary>
+      <ul>
+        <li>Chrome か Edge の最新版を使ってください。</li>
+        <li>最初の接続だけ、インターネット上の仲介サーバ（PeerJS）を使います。校内ネットワークのフィルタで止められていると接続できません。</li>
+        <li>メッセージはどこにも保存されず、ページを閉じると消えます。</li>
+      </ul>
+    </details>
+  </div>
+</section>
+
+<!-- ===== 通信画面 ===== -->
+<section id="main" class="screen" hidden>
+  <div class="topbar">
+    <h1 id="mTitle">P2P体験</h1>
+    <button class="btn-ghost" id="mBack">最初の画面へ</button>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="muted">あなたのIPアドレス（相手に伝えよう）</div>
+        <div class="ip" id="mMyIp">-</div>
+      </div>
+      <div>
+        <div class="muted">ペアの相手</div>
+        <div class="ip peer" id="mPeerIp" style="font-size:1.4rem">まだいません</div>
+        <div>状態：<span class="status wait" id="mStatus">相手を待っています</span></div>
+      </div>
+    </div>
+
+    <div class="row" id="mConnectRow" style="margin-top:12px">
+      <div style="flex:0 1 240px"><label for="mPeerInput">相手のIPアドレス</label><input id="mPeerInput" class="mono" inputmode="decimal" maxlength="15" placeholder="例：192.168.23.45" autocomplete="off"></div>
+      <button class="btn-main" id="mConnect">接続</button>
+    </div>
+    <div class="row" id="mDisconnectRow" style="margin-top:12px" hidden>
+      <button class="btn-ghost" id="mDisconnect">切断</button>
+    </div>
+
+    <div class="diagram" aria-hidden="true">
+      <div class="node me" id="mNodeMe">あなた</div>
+      <div class="wire" id="mWire"><div class="packet" id="mPacket"></div><div class="wire-label">直接つながる（サーバは通らない）</div></div>
+      <div class="node peer off" id="mNodePeer">相手</div>
+    </div>
+    <p class="note" style="margin-top:14px">どちらか一方が相手のIPアドレスを入れて「接続」を押せばつながります。相手は1人だけです。（教材内の仮想IPアドレスです）</p>
+  </div>
+
+  <div class="grid2" id="mChatArea">
+    <div class="card">
+      <h2>✉️ メッセージを送る</h2>
+      <div class="row">
+        <div class="grow"><label for="mText">メッセージ</label><input id="mText" maxlength="200" autocomplete="off" disabled></div>
+        <button class="btn-main" id="mSend" disabled>送信</button>
+      </div>
+      <p class="note" style="margin-top:8px">「受信」ボタンはありません。メッセージは相手に直接届きます。</p>
+    </div>
+    <div class="card">
+      <h2>💬 メッセージ</h2>
+      <ul class="list" id="mChat"></ul>
+      <div class="empty" id="mChatEmpty">まだメッセージはありません</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="topbar" style="margin-bottom:8px">
+      <h2 style="margin:0">📦 通信データログ（この端末が送受信したパケット）</h2>
+      <div class="row"><span class="muted"><span id="pktCount">0</span>件 ／ 合計 <span id="pktBytes">0</span>バイト</span>
+      <button class="btn-ghost" id="pktCsv">CSVで保存</button></div>
+    </div>
+    <div class="pkt-wrap"><table class="pkt">
+      <thead><tr><th>No.</th><th>時刻</th><th>向き</th><th>送信元IP</th><th>宛先IP</th><th>種類</th><th>データ（中身）</th><th>サイズ</th></tr></thead>
+      <tbody id="pktBody"></tbody></table>
+      <div class="empty" id="pktEmpty" style="padding:10px">まだ通信はありません</div></div>
+    <p class="note" style="margin-top:8px">サイズは「データ」部分を文字コードUTF-8で表したときのバイト数です。</p>
+  </div>
+
+  <div class="card">
+    <h2>📜 できごとログ（新しい順）</h2>
+    <ul class="log" id="mLog"></ul>
+  </div>
+</section>
+
+</main>
+<script>
+const PREFIX = 'yic-p2p-pair-v1-';
+const $ = s => document.querySelector(s);
+let peer = null;
+
+const TYPE_LABEL = { hi: 'あいさつ（接続開始）', chat: 'メッセージ', busy: '接続おことわり（通信中）', bye: '切断の連絡' };
+
+/* ---------- 共通 ---------- */
+function show(id){ document.querySelectorAll('.screen').forEach(e => e.hidden = (e.id !== id)); }
+function now(){ return new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function setStatus(el, text, cls){ el.textContent = text; el.className = 'status ' + cls; }
+function ipToPeerId(ip){ return PREFIX + ip.replace(/\./g, '-'); }
+function normIp(s){ return s.trim().replace(/[．。]/g, '.').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)); }
+function isValidIp(ip){ const p = ip.split('.'); return p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && Number(x) <= 255); }
+function byteSize(obj){ return new TextEncoder().encode(JSON.stringify(obj)).length; }
+function animate(dir){
+  const el = $('#mPacket');
+  el.classList.remove('go-right','go-left'); void el.offsetWidth;
+  el.classList.add(dir === 'right' ? 'go-right' : 'go-left');
+}
+function netErrorText(err){
+  switch(err.type){
+    case 'peer-unavailable': return 'そのIPアドレスの相手が見つかりません。IPアドレスが正しいか、相手が「はじめる」を押しているか確認してください。';
+    case 'network': case 'server-error': case 'socket-error': case 'socket-closed':
+      return '接続の仲介サーバにつながりません。インターネット接続か、校内ネットワークのフィルタを確認してください。';
+    case 'browser-incompatible': return 'このブラウザは対応していません。Chrome か Edge を使ってください。';
+    default: return '通信エラーが起きました（' + err.type + '）';
+  }
+}
+const log = (cls, html) => {
+  const li = document.createElement('li');
+  li.className = cls; li.innerHTML = `<time>${now()}</time>${html}`;
+  $('#mLog').prepend(li);
+};
+
+/* ---------- 通信データログ ---------- */
+const PK = { rows: [], bytes: 0 };
+function recordPacket(dir, pkt){
+  const size = byteSize(pkt.data);
+  const r = { no: PK.rows.length + 1, time: now(), dir, src: String(pkt.src), dst: String(pkt.dst), type: String(pkt.type), data: JSON.stringify(pkt.data), size };
+  PK.rows.push(r); PK.bytes += size;
+  const tr = document.createElement('tr');
+  tr.className = dir === '受信' ? 'rx' : 'tx';
+  tr.innerHTML = `<td class="n">${r.no}</td><td class="n">${r.time}</td><td class="dir">${dir === '受信' ? '⬇ 受信' : '⬆ 送信'}</td>` +
+    `<td class="addr mono">${esc(r.src)}</td><td class="addr mono">${esc(r.dst)}</td>` +
+    `<td>${esc(TYPE_LABEL[r.type] || r.type)}<div class="meta mono">${esc(r.type)}</div></td>` +
+    `<td><code>${esc(r.data)}</code></td><td class="n">${size} B</td>`;
+  $('#pktBody').prepend(tr);
+  $('#pktEmpty').hidden = true;
+  $('#pktCount').textContent = PK.rows.length;
+  $('#pktBytes').textContent = PK.bytes;
+}
+$('#pktCsv').addEventListener('click', () => {
+  if(!PK.rows.length){ alert('まだ通信データがありません'); return; }
+  const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const rows = [['No','時刻','向き','送信元IP','宛先IP','種類','種類(英)','データ','サイズ(バイト)']]
+    .concat(PK.rows.map(p => [p.no, p.time, p.dir, p.src, p.dst, TYPE_LABEL[p.type] || p.type, p.type, p.data, p.size]));
+  const csv = '﻿' + rows.map(r => r.map(q).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `P2P通信データログ_${(S.ip || 'p2p').replace(/\./g, '-')}.csv`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+/* ---------- 状態 ---------- */
+const S = { name: '', ip: '', conn: null, peerIp: '', peerName: '' };
+
+function send(conn, dst, type, data){
+  const pkt = { src: S.ip, dst, type, data };
+  conn.send(pkt); recordPacket('送信', pkt);
+}
+
+/* はじめる：自分のIPアドレスを決めて待ち受ける */
+function start(){
+  const name = $('#hName').value.trim();
+  if(!name){ alert('名前を入力してください'); $('#hName').focus(); return; }
+  S.name = name;
+  $('#hStart').disabled = true;
+  setStatus($('#hStatus'), '準備中…', 'wait');
+  openPeer();
+}
+function openPeer(){
+  if(peer){ try{ peer.destroy(); }catch(e){} }
+  const ip = `192.168.${1 + Math.floor(Math.random() * 254)}.${2 + Math.floor(Math.random() * 252)}`;
+  peer = new Peer(ipToPeerId(ip), { debug: 0 });
+  peer.on('open', () => {
+    S.ip = ip;
+    show('main');
+    $('#mTitle').textContent = `${S.name} さん`;
+    $('#mMyIp').textContent = ip;
+    $('#mNodeMe').innerHTML = `あなた<br><span class="mono">${ip}</span>`;
+    log('sys', `準備ができました。あなたのIPアドレスは <b class="mono">${ip}</b> です。ペアの相手に伝えるか、相手のIPアドレスを入れて接続してください。`);
+    $('#mPeerInput').focus();
+  });
+  peer.on('error', err => {
+    if(err.type === 'unavailable-id'){ openPeer(); return; }   // IPが重なったら選び直す
+    if($('#main').hidden){
+      setStatus($('#hStatus'), netErrorText(err), 'off');
+      $('#hStart').disabled = false;
+    } else {
+      log('err', esc(netErrorText(err)));
+      if(S.conn && !S.peerName){ try{ S.conn.close(); }catch(e){} S.conn = null; }
+      if(!S.conn) resetConnectUi();
+    }
+  });
+  peer.on('connection', conn => {
+    // すでにペアがいるときはおことわり
+    if(S.conn){
+      conn.on('open', () => {
+        conn.on('data', pkt => {
+          if(pkt && pkt.type === 'hi'){
+            recordPacket('受信', pkt);
+            log('err', `🚫 <span class="mono">${esc(pkt.src)}</span>（${esc(pkt.data && pkt.data.name || '?')} さん）から接続要求がありましたが、ペアの相手がいるので断りました`);
+            send(conn, String(pkt.src), 'busy', { reason: 'ペアの相手と通信中です' });
+            setTimeout(() => conn.close(), 500);
+          }
+        });
+      });
+      return;
+    }
+    setupConn(conn, null);
+  });
+}
+
+/* 相手に接続する */
+function connectTo(){
+  const ip = normIp($('#mPeerInput').value);
+  if(!isValidIp(ip)){ alert('相手のIPアドレスを「192.168.23.45」のような形で入力してください'); $('#mPeerInput').focus(); return; }
+  if(ip === S.ip){ alert('それはあなた自身のIPアドレスです。相手のIPアドレスを入力してください'); return; }
+  if(S.conn) return;
+  $('#mConnect').disabled = true;
+  setStatus($('#mStatus'), '接続中…', 'wait');
+  log('sys', `<span class="mono">${esc(ip)}</span> に直接つなぎに行きます…`);
+  const conn = peer.connect(ipToPeerId(ip), { reliable: true });
+  setupConn(conn, ip);
+  setTimeout(() => {
+    if(S.conn === conn && !S.peerName){
+      S.conn = null; try{ conn.close(); }catch(e){}
+      log('err', '相手から応答がありません。IPアドレスを確認してください。');
+      resetConnectUi();
+    }
+  }, 10000);
+}
+
+function setupConn(conn, targetIp){
+  S.conn = conn;
+  conn.on('open', () => {
+    if(targetIp){ S.peerIp = targetIp; send(conn, targetIp, 'hi', { name: S.name }); }
+  });
+  conn.on('data', pkt => {
+    if(!pkt || typeof pkt !== 'object') return;
+    const d = (pkt.data && typeof pkt.data === 'object') ? pkt.data : {};
+    recordPacket('受信', { src: pkt.src, dst: pkt.dst, type: pkt.type, data: d });
+    animate('left');
+    if(pkt.type === 'hi'){
+      const first = !S.peerName;
+      S.peerIp = String(pkt.src);
+      S.peerName = String(d.name || '名無し').slice(0, 20);
+      if(!targetIp) send(conn, S.peerIp, 'hi', { name: S.name });   // つながってきた側もあいさつを返す
+      if(first) paired();
+    }
+    else if(pkt.type === 'chat'){
+      addChat(false, String(d.text || '').slice(0, 200));
+      log('in', `💬 ${esc(S.peerName)} さんからメッセージが<b>直接</b>届きました`);
+    }
+    else if(pkt.type === 'busy'){
+      log('err', `🚫 相手から「${esc(d.reason || '通信中です')}」と断られました。相手はほかの人とペアになっています。`);
+      S.conn = null; resetConnectUi();
+    }
+    else if(pkt.type === 'bye'){
+      log('err', `👋 ${esc(S.peerName)} さんが切断しました`);
+    }
+  });
+  conn.on('close', () => {
+    if(S.conn !== conn) return;
+    const had = !!S.peerName;
+    S.conn = null; S.peerIp = ''; S.peerName = '';
+    resetConnectUi();
+    if(had) log('err', '✂️ 相手との接続が切れました。');
+  });
+  conn.on('error', () => {});
+}
+
+function paired(){
+  $('#mPeerIp').textContent = S.peerIp;
+  $('#mNodePeer').innerHTML = `${esc(S.peerName)}<br><span class="mono">${esc(S.peerIp)}</span>`;
+  $('#mNodePeer').classList.remove('off');
+  $('#mWire').classList.add('on');
+  setStatus($('#mStatus'), `${S.peerName} さんと直接つながっています`, 'on');
+  $('#mConnectRow').hidden = true; $('#mDisconnectRow').hidden = false;
+  $('#mText').disabled = false; $('#mSend').disabled = false;
+  log('out', `🤝 ${esc(S.peerName)} さん（<span class="mono">${esc(S.peerIp)}</span>）と<b>直接</b>つながりました`);
+  $('#mText').focus();
+}
+function resetConnectUi(){
+  $('#mPeerIp').textContent = 'まだいません';
+  $('#mNodePeer').textContent = '相手';
+  $('#mNodePeer').classList.add('off');
+  $('#mWire').classList.remove('on');
+  setStatus($('#mStatus'), '相手を待っています', 'wait');
+  $('#mConnectRow').hidden = false; $('#mDisconnectRow').hidden = true;
+  $('#mConnect').disabled = false;
+  $('#mText').disabled = true; $('#mSend').disabled = true;
+}
+function disconnect(){
+  if(!S.conn) return;
+  const c = S.conn;
+  if(c.open) send(c, S.peerIp, 'bye', {});
+  log('sys', '切断しました');
+  setTimeout(() => { try{ c.close(); }catch(e){} }, 300);
+}
+
+function addChat(mine, text){
+  const li = document.createElement('li');
+  if(mine) li.className = 'mine';
+  li.innerHTML = `<span class="meta">${now()}　${mine ? 'あなた' : esc(S.peerName) + ' さん'}</span><br>${esc(text)}`;
+  $('#mChat').append(li);
+  $('#mChatEmpty').hidden = true;
+  $('#mChat').scrollTop = $('#mChat').scrollHeight;
+}
+function sendChat(){
+  const text = $('#mText').value.trim();
+  if(!text || !S.conn || !S.conn.open) return;
+  send(S.conn, S.peerIp, 'chat', { text });
+  animate('right');
+  addChat(true, text);
+  $('#mText').value = ''; $('#mText').focus();
+}
+
+$('#hStart').addEventListener('click', start);
+$('#hName').addEventListener('keydown', e => { if(e.key === 'Enter' && !e.isComposing) start(); });
+$('#mConnect').addEventListener('click', connectTo);
+$('#mPeerInput').addEventListener('keydown', e => { if(e.key === 'Enter' && !e.isComposing) connectTo(); });
+$('#mDisconnect').addEventListener('click', disconnect);
+$('#mSend').addEventListener('click', sendChat);
+$('#mText').addEventListener('keydown', e => { if(e.key === 'Enter' && !e.isComposing) sendChat(); });
+$('#mBack').addEventListener('click', () => {
+  if(!confirm('接続を終了して最初の画面に戻りますか？')) return;
+  if(peer){ try{ peer.destroy(); }catch(e){} }
+  location.reload();
+});
+
+if(typeof Peer === 'undefined'){
+  document.querySelector('main').insertAdjacentHTML('afterbegin',
+    '<div class="card" style="border-color:var(--err)"><b>通信用ライブラリを読み込めませんでした。</b>インターネット接続を確認してください。</div>');
+}
+</script>
+</body>
+</html>
